@@ -29,8 +29,8 @@ separately.
 - `zsh`, Node.js, and npm.
 - OpenAI Secure MCP Tunnel access, including:
   - the `tunnel-client` executable;
-  - a tunnel ID created for your workspace;
-  - its runtime API key.
+  - a provider-generated tunnel ID;
+  - your own OpenAI Platform runtime API key.
 - A ChatGPT plan/workspace that supports custom MCP apps, or another MCP client
   compatible with the tunnel.
 - Optional desktop controls:
@@ -38,10 +38,35 @@ separately.
   - macOS Screen Recording and Accessibility permission for the launching
     terminal or tunnel process.
 
-OpenAI distributes tunnel access and credentials through the supported ChatGPT
-developer-mode workflow. If your workspace does not show Secure MCP Tunnel or
-custom MCP app setup, ask its administrator or OpenAI support; this repository
-does not create or bypass access.
+Secure MCP Tunnel is documented for enterprise customers. Creating and managing
+a tunnel requires the appropriate OpenAI Platform organization permissions, and
+ChatGPT developer mode is a separate workspace permission. If either surface is
+unavailable, ask the relevant Platform organization or ChatGPT workspace
+administrator. This repository does not create or bypass access.
+
+## Cost and billing
+
+Do not assume the complete setup is free or consumes no credits:
+
+- The tunnel layer is transport, not inference. Creating a `tunnel_id`,
+  authenticating `tunnel-client` to the OpenAI control plane, and keeping that
+  tunnel connected do not themselves call a model or consume model-inference
+  tokens/credits. The runtime API key is used for tunnel/control-plane
+  authentication; merely supplying it does not create an inference request.
+- This repository and its local Python server do not independently call an
+  OpenAI model merely by running the gateway.
+- [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+  is an enterprise feature. Availability and commercial terms depend on the
+  OpenAI organization/workspace agreement; OpenAI does not document it as an
+  unconditional free service.
+- When ChatGPT invokes the MCP, the ChatGPT conversation/model usage remains
+  subject to that workspace's plan, usage limits, credits, and administrator
+  settings. The tunnel does not erase or duplicate those charges.
+- If an MCP client separately calls OpenAI models or hosted tools through the
+  Responses API or another Platform API, those requests can be billed at
+  [current API rates](https://developers.openai.com/api/docs/pricing). A
+  tunnel runtime key must not be treated as a promise that all OpenAI API-key
+  usage is free.
 
 ## Step-by-step setup
 
@@ -56,42 +81,106 @@ python3 -m venv .venv
 ./.venv/bin/playwright install chromium
 ```
 
-### 2. Install the OpenAI tunnel client
+### 2. Confirm tunnel and ChatGPT permissions
 
-Follow the Secure MCP Tunnel instructions presented by OpenAI for your ChatGPT
-workspace. Confirm the installed client is available:
+Open the official
+[Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+and confirm the intended operator has:
+
+- **Tunnels Read + Manage** in the OpenAI Platform organization to create or
+  edit a tunnel.
+- **Tunnels Read + Use** to run `tunnel-client` and select the tunnel from a
+  supported product.
+- ChatGPT developer-mode access in the target workspace. This is administered
+  separately from Platform tunnel permissions.
+
+### 3. Create the tunnel in OpenAI Platform
+
+1. Open [Platform tunnel settings](https://platform.openai.com/settings/organization/tunnels).
+2. Select the Platform organization that should own the tunnel.
+3. Choose **Create tunnel**.
+4. Enter a descriptive display name, such as `codex-2-macbook`. The name is for
+   humans and may be chosen by you.
+5. Add a clear description, such as `Local Codex 2.0 MCP gateway`.
+6. Associate the target ChatGPT workspace and any Platform organization that
+   should be allowed to discover or use the tunnel.
+7. Create the tunnel and copy the resulting `tunnel_id`.
+
+OpenAI generates the actual ID in the form `tunnel_...`. Do not invent an ID
+from the display name. The same ID is used by `tunnel-client` and ChatGPT.
+Adding another allowed organization/workspace does not create a new ID.
+
+If your organization manages tunnels through the CLI instead, an administrator
+can run `tunnel-client admin tunnels create` with a name, description, and the
+intended organization/workspace IDs. This requires an admin key and tunnel
+management permission; the long-lived runtime should use a separate runtime
+key, not the admin key.
+
+### 4. Install the OpenAI tunnel client
+
+Download `tunnel-client` from the link in
+[Platform tunnel settings](https://platform.openai.com/settings/organization/tunnels)
+or from the
+[latest public release](https://github.com/openai/tunnel-client/releases/latest).
+Keep the binary somewhere on `PATH`, then verify it:
 
 ```bash
 tunnel-client --version
+tunnel-client help quickstart
 ```
 
 If it is installed outside `PATH`, set its absolute location as
 `TUNNEL_CLIENT` in `.env`.
 
-### 3. Store the runtime key outside the repository
+### 5. Create and safely store your OpenAI runtime API key
+
+1. Open the owning organization's
+   [Runtime API keys](https://platform.openai.com/settings/organization/api-keys)
+   page.
+2. Create your own key for this runtime, using a recognizable name such as
+   `codex-2-runtime`.
+3. Ensure the key's principal has **Tunnels Read + Use** for the tunnel.
+4. Copy the key when OpenAI displays it. Do not use an organization admin key
+   as the long-lived runtime key.
+
+Save that OpenAI Platform key outside the repository. The following zsh
+commands accept it without putting the value directly in the command line:
 
 ```bash
 mkdir -p "$HOME/.config/codex-mcp"
 chmod 700 "$HOME/.config/codex-mcp"
-printf '%s' 'PASTE_YOUR_RUNTIME_API_KEY_HERE' \
-  > "$HOME/.config/codex-mcp/runtime-api-key"
+read -s "runtime_key?Paste your OpenAI runtime API key: "
+printf '%s' "$runtime_key" > "$HOME/.config/codex-mcp/runtime-api-key"
+unset runtime_key
 chmod 600 "$HOME/.config/codex-mcp/runtime-api-key"
 ```
 
-Avoid entering the real value in commands that are recorded in shared shell
-history. A secure editor or hidden-input credential workflow is preferable.
+This is where the user supplies their own OpenAI API key. The gateway does not
+put it in `.env`, pass it to terminal tools, or commit it to Git.
 
-### 4. Configure the local, ignored environment file
+### 6. Paste the tunnel ID into the ignored local configuration
 
 ```bash
 cp .env.example .env
 chmod 600 .env
 ```
 
-Edit `.env` and replace `tunnel_REPLACE_ME` with your own tunnel ID. Keep
-`.env` local—it is ignored by Git.
+Edit `.env` and replace:
 
-### 5. Install the one-line command
+```dotenv
+TUNNEL_ID=tunnel_REPLACE_ME
+```
+
+with the provider-generated ID copied from Platform tunnel settings:
+
+```dotenv
+TUNNEL_ID=tunnel_YOUR_OWN_ID
+```
+
+Leave `RUNTIME_API_KEY_FILE` pointing to the mode-`600` key file created in the
+previous step. Keep `.env` local—it is ignored by Git.
+
+### 7. Install the one-line command
 
 ```bash
 mkdir -p "$HOME/.local/bin"
@@ -104,7 +193,7 @@ Add `~/.local/bin` to your shell `PATH` if needed:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### 6. Start the gateway in a project folder
+### 8. Start the gateway in a project folder
 
 ```bash
 cd /path/to/project
@@ -128,26 +217,42 @@ codex-mcp restart /path/to/project
 codex-mcp stop
 ```
 
-### 7. Connect ChatGPT
+For diagnostics, use the provider-supported checks:
 
-The exact labels vary by plan and rollout, but the workflow is:
+```bash
+tunnel-client runtimes status codex-tool-gateway --json
+tunnel-client doctor --profile codex-tool-gateway --explain
+```
+
+Do not use `nohup` or `disown`; `codex-mcp` uses the client's managed runtime
+supervision.
+
+### 9. Connect ChatGPT
+
+Keep `codex-mcp` running during discovery and use:
 
 1. Enable developer mode for your ChatGPT workspace/account.
-2. Open **Settings** or **Workspace Settings → Apps**.
-3. Create a custom MCP app.
-4. Select the OpenAI Secure MCP Tunnel created for this server.
-5. Scan the MCP tools.
-6. Review every action, especially terminal, filesystem, keyboard, mouse, and
+2. Open **Settings → Plugins** or
+   [chatgpt.com/plugins](https://chatgpt.com/plugins).
+3. Select the plus button to create a developer-mode app.
+4. Under **Connection**, choose **Tunnel**.
+5. Select the tunnel by its display name. If it is not listed, paste the same
+   provider-generated `tunnel_id` used in `.env`.
+6. Scan the MCP tools.
+7. Review every action, especially terminal, filesystem, keyboard, mouse, and
    write operations.
-7. Create or publish the app and explicitly connect it for your user.
-8. Start a new chat, select the app, and ask it to call `gateway_info` followed
+8. Create or publish the app and explicitly connect it for your user.
+9. Start a new chat, select the app, and ask it to call `gateway_info` followed
    by `terminal_status`.
+
+If the tunnel does not appear, verify that it is associated with the target
+ChatGPT workspace and that the app creator has **Tunnels Read + Use**.
 
 ChatGPT freezes an approved snapshot of tool definitions. After updating this
 server, refresh its actions in Enterprise/Edu. A published Business custom app
 may need to be recreated and republished to adopt changed tools.
 
-### 8. Connect another MCP client
+### 10. Connect another MCP client
 
 Use the tunnel endpoint and authentication details provided by OpenAI in the
 client's remote-MCP configuration. For a local stdio smoke test, point the
