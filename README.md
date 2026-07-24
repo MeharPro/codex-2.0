@@ -5,11 +5,6 @@ reach through an OpenAI Secure MCP Tunnel. It exposes terminal, filesystem,
 Playwright browser automation, macOS screenshots and Accessibility controls,
 installed Codex skill discovery, and a local activity journal.
 
-> [!CAUTION]
-> This is intentionally equivalent to remote code execution as your macOS
-> user. Read [SECURITY.md](SECURITY.md), keep credentials out of the repository,
-> and only connect clients and users you trust.
-
 ## What it provides
 
 - One-shot and persistent interactive terminal tools.
@@ -53,7 +48,7 @@ does not create or bypass access.
 ### 1. Clone and create the Python environment
 
 ```bash
-git clone https://github.com/MEHARPro/codex-2.0.git
+git clone https://github.com/MeharPro/codex-2.0.git
 cd codex-2.0
 python3 -m venv .venv
 ./.venv/bin/python -m pip install --upgrade pip
